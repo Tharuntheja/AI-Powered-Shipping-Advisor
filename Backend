@@ -1,0 +1,42 @@
+!pip install pinecone
+!pip install pinecone-client
+!pip install openai
+!pip install sentence_transformers
+import os
+from pinecone import Pinecone
+import openai
+from sentence_transformers import SentenceTransformer
+
+OPENAI_API_KEY = "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"
+PINECONE_API_KEY = "pcsk_2fvZBo_MkGXDyVfj6jpL5BFHf1NmfwLhbLVj5F7p6L9VuDG8JYHeHFDcRsNP6M9ZjH4FHM"
+openai.api_key = OPENAI_API_KEY
+pinecone_client = Pinecone(api_key=PINECONE_API_KEY, environment="us-west1-gcp") 
+index = pinecone_client.Index("shipping")
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+def embed_text(text):
+    return embedding_model.encode(text).tolist()
+
+def add_shipping_data(shipping_id, details):
+    embedding = embed_text(details)
+    index.upsert([(shipping_id, embedding, {"details": details})])
+
+def query_shipping_rates(user_query):
+    query_embedding = embed_text(user_query)
+    results = index.query(vector=query_embedding, top_k=3, include_metadata=True) 
+    
+    context = "\n".join([match["metadata"]["details"] for match in results["matches"]])
+    prompt = f"""You are an AI assistant specializing in e-commerce shipping. Based on the context below, provide the best shipping options:
+    Context: {context}
+    User Query: {user_query}
+    Recommended Shipping Option:"""
+    
+    response = openai.chat.completions.create(
+        model="gpt-3.5-turbo", messages=[{"role": "system", "content": prompt}]
+    )
+    return response["choices"][0]["message"]["content"]
+
+if __name__ == "__main__":
+    add_shipping_data("ship1", "USPS offers $5 shipping for 5lb packages to California in 3 days.")
+    add_shipping_data("ship2", "FedEx offers $8 shipping for 5lb packages to California in 2 days.")
+    print(query_shipping_rates("Cheapest shipping for a 5lb package to California?"))
